@@ -1,0 +1,121 @@
+mysql-master:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mysql_instance_mysql56:v1.0
+  ports:
+    - 3306
+  volumes:
+    - /root/mysqldata:/var/lib/mysql
+  environment:
+    - MYSQL_ROOT_PASSWORD=secret
+    - DBSERVERID=12
+mysql-slave-1:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mysql_instance_mysql56:v1.0
+  volumes:
+    - /root/mysqldataslave:/var/lib/mysql
+  environment:
+    - MYSQL_ROOT_PASSWORD=secret
+    - DBSERVERID=13
+  links:
+    - mysql-master
+dbreplicationcfg:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mysql_replication:v1.0
+  environment:
+    - MASTER_HOST_ENV=mysql-master
+    - SLAVE_HOSTS_ENV=mysql-slave-1
+  links:
+    - mysql-master
+    - mysql-slave-1
+  entrypoint: db_resync.sh
+dbrouter:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mysql_router_update:v1.0
+  environment:
+    REPLICATION: 'true'
+  ports:
+    - '7001:7001'
+    - '7002:7002'
+  links:
+    - mysql-master
+    - mysql-slave-1
+phpfpmwx:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/bohe_worker:v1.0
+  links:
+  - dbrouter
+  - mysql-master
+  - mysql-slave-1
+  volumes:
+  - /root/worker_lumen:/root/worker_lumen
+  entrypoint: phpfpm_start.sh
+wxif:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/openresty_wx:v1.0
+  links:
+  - phpfpmwx:phpfpmwx
+  volumes_from:
+  - phpfpmwx
+  environment:
+   - VIRTUAL_HOST_NAME=test.zhenweitech.cn
+  ports:
+  - 8007:80
+cache:
+  image: redis:3.2.8
+phpfpmofficial:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/official_php_5625:v2.0
+  links:
+  - mysql-master
+  - cache
+  - mintdbwriter
+  volumes:
+  - /root/octobercms:/root/octobercms
+  - /root/mysqldata:/var/lib/mysql
+  entrypoint: phpfpm_start.sh
+webserver:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/openresty_web:v1.0
+  links:
+  - phpfpmofficial:phpfpmofficial
+  volumes_from:
+  - phpfpmofficial
+  environment:
+      - VIRTUAL_HOST_NAME=test.zhenweitech.cn
+  ports:
+  - 8000:80
+  entrypoint: /usr/local/bin/openresty_start.sh
+view:  
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/wxview:v1.0
+  ports:
+  - 3000:3000
+mintdbwriter:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mysql_instance_mysql56:v1.0
+  volumes:
+    - /root/mysqldatamint:/var/lib/mysql
+  ports:
+    - 3306
+  environment:
+    - MYSQL_ROOT_PASSWORD=0elIC64d94aor  
+    - DBSERVERID=15
+phpfpmmint:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/mint-worker:v1.0
+  volumes:
+  - /root/mint:/root/mint
+  links:
+  - mintdbwriter:mintdbwriter
+  - mysql-master
+  entrypoint: phpfpm_start.sh
+mint:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/openresty_mint:v1.0
+  links:
+  - phpfpmmint:phpfpmmint
+  volumes_from:
+  - phpfpmmint
+  environment:
+  - VIRTUAL_HOST_NAME=test2.zhenweitech.cn
+  ports:
+  - 80:80
+zm-ucenter:
+  image: registry.cn-beijing.aliyuncs.com/boheyayi/ucenter:v1.0
+  environment:
+    - VIRTUAL_HOST=test.zhenweitech.cn
+  links:
+  - mysql-master
+  extra_hosts:
+   - "test2.zhenweitech.cn:172.17.0.13"
+   - "test.zhenweitech.cn:172.17.0.10"
+  ports:
+  - 8810:80
